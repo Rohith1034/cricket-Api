@@ -26,7 +26,10 @@ def preprocess_player(player):
     return player
 
 # Load and preprocess player data
-with open('players.json') as f:
+BASE_DIR = Path(__file__).resolve().parent
+
+# Load players.json
+with open(BASE_DIR / 'players.json') as f:
     players = json.load(f)
 processed_players = [preprocess_player(p) for p in players]
 df = pd.DataFrame(processed_players)
@@ -73,9 +76,11 @@ model = CricketNN()
 
 # Load with weights_only=True to avoid security warning
 model.load_state_dict(
-    torch.load('cricket_model.pth', 
-               map_location=torch.device('cpu'),
-               weights_only=True)
+    torch.load(
+        BASE_DIR / 'cricket_model.pth',
+        map_location=torch.device('cpu'),
+        weights_only=True
+    )
 )
 model.eval()
 
