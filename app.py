@@ -109,22 +109,23 @@ class TeamGenerator:
         self.round_number = 0
 
     def generate_teams(self, difficulty):
+        # Convert difficulty to lowercase for consistent handling
+        difficulty = difficulty.lower()
+        
         # First generate teams without role constraints
         for _ in range(11):
             # AI selects a player
             ai_player_idx = self._ai_select()
-            if ai_player_idx is not None:
+            if ai_player_idx is not None and ai_player_idx in self.remaining_players:
                 self.ai_team.append(ai_player_idx)
-                if ai_player_idx in self.remaining_players:
-                    self.remaining_players.remove(ai_player_idx)
+                self.remaining_players.remove(ai_player_idx)
 
             # Opponent selects a player
             if self.remaining_players:
                 opponent_player_idx = self._opponent_select(difficulty)
-                if opponent_player_idx is not None:
+                if opponent_player_idx is not None and opponent_player_idx in self.remaining_players:
                     self.opponent_team.append(opponent_player_idx)
-                    if opponent_player_idx in self.remaining_players:
-                        self.remaining_players.remove(opponent_player_idx)
+                    self.remaining_players.remove(opponent_player_idx)
             
             self.round_number += 1
         
@@ -297,6 +298,8 @@ class TeamGenerator:
         if not self.remaining_players:
             return None
             
+        difficulty = difficulty.lower()  # Ensure consistent case handling
+        
         if difficulty == 'easy':
             return random.choice(self.remaining_players)
         elif difficulty == 'medium':
@@ -315,45 +318,32 @@ class TeamGenerator:
                 player_logits, _ = model(state)
             action = player_logits.argmax().item()
             return self.remaining_players[action % len(self.remaining_players)]
+        else:  # Handle unknown difficulties
+            return random.choice(self.remaining_players)
 
 # Flask API setup
 app = Flask(__name__)
 
-@app.route('/generate_teams', methods=['POST'])
-def generate_teams():
-    data = request.json
-    difficulty = data.get('difficulty', 'medium')  # Default to medium
-    generator = TeamGenerator(df)
-    (ai_team_indices, ai_roles), (opponent_team_indices, opponent_roles) = generator.generate_teams(difficulty)
-    
-    # Convert indices to complete player details
-    ai_team = []
-    for idx, role in zip(ai_team_indices, ai_roles):
-        if isinstance(idx, int) and idx in df.index:
-            player = df.loc[idx]
-            player_dict = player.to_dict()
-            player_dict['assigned_role'] = role  # Add assigned role
-            ai_team.append(player_dict)
-    
-    opponent_team = []
-    for idx, role in zip(opponent_team_indices, opponent_roles):
-        if isinstance(idx, int) and idx in df.index:
-            player = df.loc[idx]
-            player_dict = player.to_dict()
-            player_dict['assigned_role'] = role  # Add assigned role
-            opponent_team.append(player_dict)
-    
-    # Verify team composition
-    ai_composition = analyze_composition(ai_team)
-    opponent_composition = analyze_composition(opponent_team)
-    
-    return jsonify({
-        'ai_team': ai_team,
-        'opponent_team': opponent_team,
-        'difficulty': difficulty,
-        'ai_composition': ai_composition,
-        'opponent_composition': opponent_composition
-    })
+def create_placeholder_player():
+    """Create a placeholder player when real players are unavailable"""
+    return {
+        "Player_Name": "Placeholder Player",
+        "image_path": "",
+        "type_of_player": "Batsman",
+        "assigned_role": "Batsman",
+        "Matches_Batted": 0,
+        "Runs_Scored": 0,
+        "Batting_Strike_Rate": 0,
+        "Batting_Average": 0,
+        "Sixes": 0,
+        "Fours": 0,
+        "Matches_Bowled": 0,
+        "Wickets_Taken": 0,
+        "Economy_Rate": 0,
+        "Bowling_Average": 0,
+        "Four_Wicket_Hauls": 0,
+        "Five_Wicket_Hauls": 0
+    }
 
 def analyze_composition(team):
     """Analyze team composition and return counts"""
@@ -383,6 +373,68 @@ def analyze_composition(team):
         'allrounders': allrounders,
         'bowlers': bowlers
     }
+
+@app.route('/generate_teams', methods=['POST'])
+def generate_teams():
+    data = request.json
+    difficulty = data.get('difficulty', 'medium')  # Default to medium
+    
+    # Convert difficulty to lowercase for consistent handling
+    if difficulty:
+        difficulty = difficulty.lower()
+    
+    generator = TeamGenerator(df)
+    (ai_team_indices, ai_roles), (opponent_team_indices, opponent_roles) = generator.generate_teams(difficulty)
+    
+    # Convert indices to complete player details
+    ai_team = []
+    for idx, role in zip(ai_team_indices, ai_roles):
+        if isinstance(idx, int) and idx in df.index:
+            player = df.loc[idx]
+            player_dict = player.to_dict()
+            player_dict['assigned_role'] = role  # Add assigned role
+            ai_team.append(player_dict)
+        else:
+            # Add placeholder if invalid index
+            placeholder = create_placeholder_player()
+            placeholder['assigned_role'] = role
+            ai_team.append(placeholder)
+    
+    opponent_team = []
+    for idx, role in zip(opponent_team_indices, opponent_roles):
+        if isinstance(idx, int) and idx in df.index:
+            player = df.loc[idx]
+            player_dict = player.to_dict()
+            player_dict['assigned_role'] = role  # Add assigned role
+            opponent_team.append(player_dict)
+        else:
+            # Add placeholder if invalid index
+            placeholder = create_placeholder_player()
+            placeholder['assigned_role'] = role
+            opponent_team.append(placeholder)
+    
+    # Ensure both teams have exactly 11 players
+    while len(ai_team) < 11:
+        placeholder = create_placeholder_player()
+        placeholder['assigned_role'] = "Batsman"
+        ai_team.append(placeholder)
+    
+    while len(opponent_team) < 11:
+        placeholder = create_placeholder_player()
+        placeholder['assigned_role'] = "Batsman"
+        opponent_team.append(placeholder)
+    
+    # Verify team composition
+    ai_composition = analyze_composition(ai_team)
+    opponent_composition = analyze_composition(opponent_team)
+    
+    return jsonify({
+        'ai_team': ai_team[:11],  # Ensure exactly 11 players
+        'opponent_team': opponent_team[:11],  # Ensure exactly 11 players
+        'difficulty': difficulty,
+        'ai_composition': ai_composition,
+        'opponent_composition': opponent_composition
+    })
 
 @app.route('/')
 def home():
