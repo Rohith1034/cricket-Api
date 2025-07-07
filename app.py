@@ -49,6 +49,7 @@ with open(BASE_DIR / 'players.json') as f:
     
 processed_players = [preprocess_player(p) for p in players]
 df = pd.DataFrame(processed_players)
+df.reset_index(drop=True, inplace=True)  # Ensure consistent integer indices
 
 # Define stats columns
 STATS = [
@@ -165,15 +166,28 @@ class TeamGenerator:
         
         # Ensure we have at least 1 wicketkeeper
         if not wicketkeepers:
-            # Find best candidate to convert to wicketkeeper
-            candidates = batsmen + allrounders + bowlers
+            # Find best candidate to convert to wicketkeeper from batsmen or all-rounders
+            candidates = batsmen + allrounders
             if candidates:
                 # Select player with best batting skills
                 best_idx = max(candidates, key=lambda idx: self.players_df.loc[idx, 'Batting_Rating'])
                 if best_idx in batsmen: batsmen.remove(best_idx)
                 if best_idx in allrounders: allrounders.remove(best_idx)
-                if best_idx in bowlers: bowlers.remove(best_idx)
                 wicketkeepers.append(best_idx)
+            else:
+                # Fallback: use the best batsman if no candidates
+                if batsmen:
+                    best_idx = max(batsmen, key=lambda idx: self.players_df.loc[idx, 'Batting_Rating'])
+                    batsmen.remove(best_idx)
+                    wicketkeepers.append(best_idx)
+                elif allrounders:
+                    best_idx = max(allrounders, key=lambda idx: self.players_df.loc[idx, 'Batting_Rating'])
+                    allrounders.remove(best_idx)
+                    wicketkeepers.append(best_idx)
+                elif bowlers:
+                    best_idx = max(bowlers, key=lambda idx: self.players_df.loc[idx, 'Batting_Rating'])
+                    bowlers.remove(best_idx)
+                    wicketkeepers.append(best_idx)
         
         # Ensure we have exactly 1 wicketkeeper
         final_wicketkeeper = wicketkeepers[0] if wicketkeepers else None
@@ -257,7 +271,8 @@ class TeamGenerator:
         
         # Final team composition
         final_team = [final_wicketkeeper] + batsmen[:4] + allrounders[:2] + bowlers[:4]
-        final_team = final_team[:11]  # Ensure only 11 players
+        # Ensure exactly 11 players
+        final_team = final_team[:11]
         
         # Create role assignments
         role_assignments = {}
@@ -324,27 +339,6 @@ class TeamGenerator:
 # Flask API setup
 app = Flask(__name__)
 
-def create_placeholder_player():
-    """Create a placeholder player when real players are unavailable"""
-    return {
-        "Player_Name": "Placeholder Player",
-        "image_path": "",
-        "type_of_player": "Batsman",
-        "assigned_role": "Batsman",
-        "Matches_Batted": 0,
-        "Runs_Scored": 0,
-        "Batting_Strike_Rate": 0,
-        "Batting_Average": 0,
-        "Sixes": 0,
-        "Fours": 0,
-        "Matches_Bowled": 0,
-        "Wickets_Taken": 0,
-        "Economy_Rate": 0,
-        "Bowling_Average": 0,
-        "Four_Wicket_Hauls": 0,
-        "Five_Wicket_Hauls": 0
-    }
-
 def analyze_composition(team):
     """Analyze team composition and return counts"""
     batsmen = 0
@@ -394,11 +388,6 @@ def generate_teams():
             player_dict = player.to_dict()
             player_dict['assigned_role'] = role  # Add assigned role
             ai_team.append(player_dict)
-        else:
-            # Add placeholder if invalid index
-            placeholder = create_placeholder_player()
-            placeholder['assigned_role'] = role
-            ai_team.append(placeholder)
     
     opponent_team = []
     for idx, role in zip(opponent_team_indices, opponent_roles):
@@ -407,22 +396,6 @@ def generate_teams():
             player_dict = player.to_dict()
             player_dict['assigned_role'] = role  # Add assigned role
             opponent_team.append(player_dict)
-        else:
-            # Add placeholder if invalid index
-            placeholder = create_placeholder_player()
-            placeholder['assigned_role'] = role
-            opponent_team.append(placeholder)
-    
-    # Ensure both teams have exactly 11 players
-    while len(ai_team) < 11:
-        placeholder = create_placeholder_player()
-        placeholder['assigned_role'] = "Batsman"
-        ai_team.append(placeholder)
-    
-    while len(opponent_team) < 11:
-        placeholder = create_placeholder_player()
-        placeholder['assigned_role'] = "Batsman"
-        opponent_team.append(placeholder)
     
     # Verify team composition
     ai_composition = analyze_composition(ai_team)
